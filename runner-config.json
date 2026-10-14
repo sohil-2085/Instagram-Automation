@@ -1,0 +1,12 @@
+{
+  "mode": "live",
+  "betweenActionsSeconds": 15,
+  "betweenUsersSeconds": 60,
+  "dryRunRandomBetweenUsers": true,
+  "dryRunBetweenUsersMinSeconds": 30,
+  "dryRunBetweenUsersMaxSeconds": 90,
+  "postsToLike": 5,
+  "commentOnPosts": true,
+  "commentPrefix": "[API TEST]",
+  "maxCaptionChars": 100
+}

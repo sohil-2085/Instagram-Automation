@@ -1,0 +1,65 @@
+import { NextResponse } from 'next/server';
+import {
+  getDefaultEnvironment,
+  unipileFetch,
+  extractProviderId,
+  readFollowState,
+  safeValue,
+} from '@/lib/unipileService';
+
+export async function POST(request) {
+  try {
+    const data = await request.json();
+    const env = getDefaultEnvironment();
+
+    const username = String(data.username || '').trim().replace(/^@+/, '');
+    if (!username) {
+      return NextResponse.json({ ok: false, error: 'Username is required' }, { status: 400 });
+    }
+
+    const dsn = data.dsn || env.dsn;
+    const apiKey = data.apiKey || env.apiKey;
+    const accountId = data.accountId || env.accountId;
+
+    const routePath = `/api/v1/users/${encodeURIComponent(username)}?account_id=${encodeURIComponent(accountId)}`;
+    const result = await unipileFetch({
+      dsn,
+      apiKey,
+      accountId,
+      method: 'GET',
+      path: routePath,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({
+        ok: false,
+        status: result.status,
+        statusText: result.statusText,
+        durationMs: result.durationMs,
+        body: safeValue('body', result.body),
+        is502: result.is502,
+        note: result.note,
+        error: typeof result.body === 'string' ? result.body : (result.body?.error || result.statusText),
+      });
+    }
+
+    const providerId = extractProviderId(result.body);
+    const followState = readFollowState(result.body);
+
+    return NextResponse.json({
+      ok: true,
+      status: result.status,
+      statusText: result.statusText,
+      durationMs: result.durationMs,
+      providerId,
+      followState,
+      body: safeValue('body', result.body),
+      profile: result.body,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error.message || 'Internal error' },
+      { status: 500 }
+    );
+  }
+}

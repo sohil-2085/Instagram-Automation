@@ -1,0 +1,21 @@
+{
+  "name": "instagram-unipile-api-runner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive test runner for a supplied Unipile Instagram Postman collection",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test:instagram": "node instagram-runner.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "lucide-react": "^1.57.0",
+    "next": "^14.2.24",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
