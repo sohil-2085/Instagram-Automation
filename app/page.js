@@ -37,6 +37,7 @@ import {
   Info,
   ShieldAlert,
   Sparkles,
+  Lock,
 } from 'lucide-react';
 import {
   getRandomDelay,
@@ -518,8 +519,18 @@ export default function Home() {
           });
           const folData = await folRes.json();
           if (folData.ok) {
-            addLog('pass', `✅ Follow request succeeded (HTTP ${folData.status})`);
-            summary.followResult = { status: 'success', data: folData };
+            const isPrivate = summary.profile?.is_private;
+            addLog(
+              'pass',
+              isPrivate
+                ? `✅ Follow request dispatched to @${username} (🔒 Private Account: Pending user approval)`
+                : `✅ Follow request succeeded (HTTP ${folData.status})`
+            );
+            summary.followResult = {
+              status: isPrivate ? 'requested (pending)' : 'success',
+              data: folData,
+              isPrivate,
+            };
             setSessionActions((prev) => ({ ...prev, follows: prev.follows + 1 }));
           } else {
             addLog('fail', `❌ Follow request failed: ${folData.error || folData.statusText}`);
@@ -550,16 +561,22 @@ export default function Home() {
         }
 
         const retrievedPosts = postData.posts || [];
-        addLog('pass', `✅ Retrieved ${retrievedPosts.length} posts for @${username}`);
         summary.posts = retrievedPosts;
         setTargetSummaries((prev) => ({ ...prev, [username]: { ...summary } }));
 
         if (retrievedPosts.length === 0) {
-          addLog('skip', `⏭️ No posts returned. Skipping like and comment actions.`);
+          if (summary.profile?.is_private) {
+            addLog('info', `🔒 Note: @${username} is a Private Account. Follow request is pending approval.`);
+            addLog('skip', `⏭️ Instagram restricts feed media of private accounts until accepted. Safely skipping like and comment steps.`);
+          } else {
+            addLog('skip', `⏭️ No posts returned. Skipping like and comment actions.`);
+          }
           summary.status = 'completed';
           setTargetSummaries((prev) => ({ ...prev, [username]: { ...summary } }));
           continue;
         }
+
+        addLog('pass', `✅ Retrieved ${retrievedPosts.length} posts for @${username}`);
 
         // STEP 5 & 6: Humanized Like & Comment on selected posts
         const selectedPosts = retrievedPosts.slice(0, postsToLike);
@@ -1419,6 +1436,12 @@ export default function Home() {
 
                         {/* Status Badges */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {summary.profile?.is_private && (
+                            <span className="badge-tag" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>
+                              <Lock size={12} /> PRIVATE ACCOUNT
+                            </span>
+                          )}
+
                           {summary.providerId && (
                             <span className="badge-tag" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-sub)' }}>
                               Provider: <code>{summary.providerId.slice(0, 16)}</code>
@@ -1452,6 +1475,16 @@ export default function Home() {
                             <span><strong>{summary.profile.following_count || 0}</strong> following</span>
                             <span><strong>{summary.profile.posts_count || summary.posts.length}</strong> posts</span>
                             <span>Follow state: <strong style={{ color: 'var(--text-main)' }}>{summary.followResult?.status || 'checked'}</strong></span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Private Account Notice Banner */}
+                      {summary.profile?.is_private && (
+                        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 0.85rem', fontSize: '0.78rem', color: '#fef08a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <Lock size={16} color="#fbbf24" style={{ flexShrink: 0 }} />
+                          <div>
+                            <strong>Private Profile:</strong> Follow request was dispatched (Status: <code>{summary.followResult?.status || 'requested'}</code>). By Instagram design, private feeds remain concealed until @{summary.username} approves your follow request. Like and comment steps were skipped safely.
                           </div>
                         </div>
                       )}
@@ -2104,6 +2137,12 @@ export default function Home() {
                     {playProfile.biography && (
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-sub)', marginTop: '0.5rem' }}>
                         {playProfile.biography}
+                      </div>
+                    )}
+                    {playProfile.is_private && (
+                      <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius-sm)', padding: '0.45rem 0.65rem', fontSize: '0.74rem', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.5rem' }}>
+                        <Lock size={13} color="#fbbf24" style={{ flexShrink: 0 }} />
+                        <span><strong>Private Account:</strong> Posts remain concealed by Instagram until they approve a follow request.</span>
                       </div>
                     )}
                   </div>
