@@ -18,9 +18,9 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Username is required' }, { status: 400 });
     }
 
-    const dsn = data.dsn || env.dsn;
-    const apiKey = data.apiKey || env.apiKey;
-    const accountId = data.accountId || env.accountId;
+    const dsn = env.dsn || data.dsn;
+    const apiKey = env.apiKey || data.apiKey;
+    const accountId = env.accountId || data.accountId;
 
     const routePath = `/api/v1/users/${encodeURIComponent(username)}?account_id=${encodeURIComponent(accountId)}`;
     const result = await unipileFetch({
