@@ -60,7 +60,7 @@ A single API failure is captured with its HTTP status and response-derived reaso
   "dryRunBetweenUsersMaxSeconds": 90,
   "postsToLike": 5,
   "commentOnPosts": true,
-  "commentPrefix": "[API TEST]",
+  "commentPrefix": "",
   "maxCaptionChars": 100
 }
 ```
@@ -71,7 +71,7 @@ A single API failure is captured with its HTTP status and response-derived reaso
 - `betweenUsersSeconds`: fixed pause after finishing a username cycle in live mode.
 - `dryRunRandomBetweenUsers`: enable random wait between username cycles in dry-run mode only.
 - `dryRunBetweenUsersMinSeconds` / `dryRunBetweenUsersMaxSeconds`: inclusive range for dry-run waits; default 30–90 seconds.
-- Comments are deliberately labeled with `[API TEST]` and include a short excerpt from the post caption, so they're visibly test comments. Use only test/authorized targets.
+- Comments are generated organically with natural human phrasing and emojis to protect accounts against bot detection. Prefix is optional and blank by default.
 
 ## Logs and failure diagnosis
 

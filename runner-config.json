@@ -7,6 +7,6 @@
   "dryRunBetweenUsersMaxSeconds": 90,
   "postsToLike": 5,
   "commentOnPosts": true,
-  "commentPrefix": "[API TEST]",
+  "commentPrefix": "",
   "maxCaptionChars": 100
 }

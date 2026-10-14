@@ -13,7 +13,7 @@ export async function GET() {
     betweenUsersSeconds: 15,
     postsToLike: 3,
     commentOnPosts: true,
-    commentPrefix: '[API TEST]',
+    commentPrefix: '',
     maxCaptionChars: 100,
   };
 

@@ -95,7 +95,7 @@ export default function Home() {
   const [betweenUsersSeconds, setBetweenUsersSeconds] = useState(60);
   const [postsToLike, setPostsToLike] = useState(3);
   const [commentOnPosts, setCommentOnPosts] = useState(true);
-  const [commentPrefix, setCommentPrefix] = useState('[API TEST]');
+  const [commentPrefix, setCommentPrefix] = useState('');
   const [maxCaptionChars, setMaxCaptionChars] = useState(100);
 
   // Anti-Ban Humanization Settings
@@ -212,8 +212,13 @@ export default function Home() {
           if (savedPostsToLike) setPostsToLike(Number(savedPostsToLike));
           else if (cfg.runnerConfig?.postsToLike) setPostsToLike(cfg.runnerConfig.postsToLike);
 
-          if (savedCommentPrefix) setCommentPrefix(savedCommentPrefix);
-          else if (cfg.runnerConfig?.commentPrefix) setCommentPrefix(cfg.runnerConfig.commentPrefix);
+          if (savedCommentPrefix && savedCommentPrefix !== '[API TEST]') {
+            setCommentPrefix(savedCommentPrefix);
+          } else if (cfg.runnerConfig?.commentPrefix && cfg.runnerConfig.commentPrefix !== '[API TEST]') {
+            setCommentPrefix(cfg.runnerConfig.commentPrefix);
+          } else {
+            setCommentPrefix('');
+          }
 
           if (savedJitter !== null) setHumanJitterEnabled(savedJitter === 'true');
           if (savedSkip !== null) setRandomSkipEnabled(savedSkip === 'true');
@@ -346,7 +351,7 @@ export default function Home() {
           setBetweenActionsSeconds(15);
           setBetweenUsersSeconds(60);
           setPostsToLike(3);
-          setCommentPrefix('[API TEST]');
+          setCommentPrefix('');
           setHumanJitterEnabled(true);
           setRandomSkipEnabled(true);
         }
@@ -612,7 +617,7 @@ export default function Home() {
                   prefix: commentPrefix,
                   maxChars: maxCaptionChars,
                 })
-              : `${commentPrefix} Caption: "${String(post.caption || '').slice(0, maxCaptionChars)}"`;
+              : (commentPrefix ? `${commentPrefix} Nice post!` : 'Nice post! 🔥');
 
             // Simulate realistic typing time
             if (humanTypingSimEnabled) {
@@ -1994,10 +1999,11 @@ export default function Home() {
                     </div>
 
                     <div className="form-group">
-                      <label className="form-label">Comment Prefix</label>
+                      <label className="form-label">Optional Comment Prefix (Leave blank for 100% natural comments)</label>
                       <input
                         type="text"
                         className="form-input"
+                        placeholder="None (clean organic comments)"
                         value={commentPrefix}
                         onChange={(e) => setCommentPrefix(e.target.value)}
                       />

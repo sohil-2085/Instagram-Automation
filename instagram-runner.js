@@ -146,7 +146,7 @@ function loadConfig() {
     commentPrefix:
       typeof raw.commentPrefix === 'string'
         ? raw.commentPrefix
-        : '[API TEST]',
+        : '',
 
     maxCaptionChars:
       Number.isFinite(Number(raw.maxCaptionChars))
@@ -515,11 +515,17 @@ function commentForCaption(caption, config, postId) {
     .trim()
     .slice(0, config.maxCaptionChars);
 
-  if (!excerpt) {
-    return `${config.commentPrefix} Comment endpoint test for post ${postId}.`;
-  }
-
-  return `${config.commentPrefix} Caption reference: “${excerpt}”`;
+  const cleanPrefix = config.commentPrefix && config.commentPrefix.trim() ? `${config.commentPrefix.trim()} ` : '';
+  const templates = [
+    'Really love this perspective! 🔥',
+    'Great shot and well captured 👏',
+    'This is amazing, thanks for sharing ✨',
+    'Totally agree with this! 💯',
+    'Awesome capture, loving the vibe 🙌',
+    'Super insightful post, great content 🚀',
+  ];
+  const randomPick = templates[Math.floor(Math.random() * templates.length)];
+  return `${cleanPrefix}${randomPick}`.trim();
 }
 
 function createLogFile() {
