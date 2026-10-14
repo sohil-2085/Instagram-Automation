@@ -111,6 +111,14 @@ export default function Home() {
   const [newTargetInput, setNewTargetInput] = useState('');
   const [bulkTargetsText, setBulkTargetsText] = useState('');
 
+  // Pending Private Users Staging Queue & Status Polling
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [newPendingInput, setNewPendingInput] = useState('');
+  const [isPollingPending, setIsPollingPending] = useState(false);
+  const [pollingStatusText, setPollingStatusText] = useState('');
+  const [acceptedModalUser, setAcceptedModalUser] = useState(null);
+  const [cycleRunningUser, setCycleRunningUser] = useState(null);
+
   // Modals & Notifications
   const [showLiveModal, setShowLiveModal] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
@@ -173,6 +181,7 @@ export default function Home() {
           const savedAccountId = localStorage.getItem('unipile_account_id');
           const savedMode = localStorage.getItem('unipile_mode');
           const savedTargets = localStorage.getItem('unipile_targets');
+          const savedPending = localStorage.getItem('unipile_pending_users');
           const savedActionsSec = localStorage.getItem('unipile_actions_sec');
           const savedUsersSec = localStorage.getItem('unipile_users_sec');
           const savedPostsToLike = localStorage.getItem('unipile_posts_to_like');
@@ -202,6 +211,13 @@ export default function Home() {
             } catch {}
           } else if (cfg.targets && Array.isArray(cfg.targets) && cfg.targets.length > 0) {
             setTargets(cfg.targets);
+          }
+
+          if (savedPending) {
+            try {
+              const parsedPending = JSON.parse(savedPending);
+              if (Array.isArray(parsedPending)) setPendingUsers(parsedPending);
+            } catch {}
           }
 
           if (savedActionsSec) setBetweenActionsSeconds(Number(savedActionsSec));
@@ -309,6 +325,339 @@ export default function Home() {
       const updated = [...targets, handle];
       setTargets(updated);
       localStorage.setItem('unipile_targets', JSON.stringify(updated));
+    }
+  };
+
+  // Pending Private Approvals Handlers
+  const updatePendingUsers = (updater) => {
+    setPendingUsers((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem('unipile_pending_users', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const addPendingUser = (userObj) => {
+    if (!userObj || !userObj.username) return;
+    const cleanUsername = userObj.username.trim().replace(/^@+/, '');
+    updatePendingUsers((prev) => {
+      const existingIdx = prev.findIndex(
+        (u) => u.username.toLowerCase() === cleanUsername.toLowerCase()
+      );
+      if (existingIdx !== -1) {
+        const updated = [...prev];
+        updated[existingIdx] = { ...updated[existingIdx], ...userObj, username: cleanUsername };
+        return updated;
+      }
+      return [
+        {
+          username: cleanUsername,
+          fullName: userObj.fullName || cleanUsername,
+          avatarUrl: userObj.avatarUrl || '',
+          providerId: userObj.providerId || '',
+          followersCount: userObj.followersCount || 0,
+          requestedAt: userObj.requestedAt || new Date().toISOString(),
+          status: userObj.status || 'pending',
+          lastChecked: userObj.lastChecked || new Date().toISOString(),
+          ...userObj,
+        },
+        ...prev,
+      ];
+    });
+  };
+
+  const removePendingUser = (username) => {
+    updatePendingUsers((prev) =>
+      prev.filter((u) => u.username.toLowerCase() !== username.toLowerCase())
+    );
+    addLog('info', `Removed @${username} from Pending Approvals tray.`);
+  };
+
+  const clearCompletedPendingUsers = () => {
+    updatePendingUsers((prev) => prev.filter((u) => u.status !== 'completed'));
+    addLog('info', 'Cleared completed users from Pending Approvals tray.');
+  };
+
+  const handleAddPendingManual = () => {
+    if (!newPendingInput.trim()) return;
+    const username = newPendingInput.trim().replace(/^@+/, '');
+    addPendingUser({
+      username,
+      fullName: username,
+      avatarUrl: '',
+      providerId: '',
+      followersCount: 0,
+      requestedAt: new Date().toISOString(),
+      status: 'pending',
+      lastChecked: null,
+    });
+    setNewPendingInput('');
+    addLog('info', `Added @${username} to Pending Approvals queue.`);
+  };
+
+  const checkIsAccepted = (data) => {
+    if (!data) return false;
+    const p = data.profile || data.body || {};
+    if (p.is_following === true || p.following === true || p.followed_by_me === true) return true;
+    if (p.relationship_status?.following === true || p.relationship_status?.followed_by_me === true) return true;
+    if (data.followState?.flags && Array.isArray(data.followState.flags)) {
+      if (data.followState.flags.some((f) => ['is_following', 'following', 'followed_by_me'].includes(f.key) && f.value === true)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const checkIsPending = (data) => {
+    if (!data) return false;
+    const p = data.profile || data.body || {};
+    if (p.is_requested === true || p.is_follow_request_sent === true || p.requested === true || p.pending === true) return true;
+    if (p.relationship_status?.has_sent_invitation === true || p.relationship_status?.requested === true) return true;
+    if (data.followState?.flags && Array.isArray(data.followState.flags)) {
+      if (data.followState.flags.some((f) => ['is_requested', 'is_follow_request_sent', 'requested', 'pending', 'has_sent_invitation'].includes(f.key) && f.value === true)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const handlePollPendingStatuses = async (singleUsername = null) => {
+    const toCheck = singleUsername
+      ? pendingUsers.filter((u) => u.username.toLowerCase() === singleUsername.toLowerCase())
+      : pendingUsers.filter((u) => u.status !== 'completed');
+
+    if (toCheck.length === 0) {
+      addLog('info', 'No pending private users to poll.');
+      return;
+    }
+
+    setIsPollingPending(true);
+    addLog('info', `🔄 Polling status for ${toCheck.length} pending target(s)...`);
+
+    let newlyAcceptedUser = null;
+
+    for (let i = 0; i < toCheck.length; i++) {
+      const user = toCheck[i];
+      setPollingStatusText(`Checking @${user.username} (${i + 1}/${toCheck.length})...`);
+      addLog('get', `[Poll] Checking relationship status for @${user.username}...`);
+
+      updatePendingUsers((prev) =>
+        prev.map((u) =>
+          u.username.toLowerCase() === user.username.toLowerCase()
+            ? { ...u, status: 'checking' }
+            : u
+        )
+      );
+
+      try {
+        const res = await fetch('/api/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, dsn, apiKey, accountId }),
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          const prof = data.profile || {};
+          const isAccepted = checkIsAccepted(data);
+          const isStillPending = checkIsPending(data);
+          const resolvedPid = data.providerId || user.providerId;
+          const resolvedAvatar = prof.avatar_url || user.avatarUrl;
+          const resolvedName = prof.full_name || user.fullName;
+
+          if (isAccepted) {
+            addLog('pass', `🎉 @${user.username} has ACCEPTED your follow request!`);
+            const acceptedData = {
+              ...user,
+              providerId: resolvedPid,
+              avatarUrl: resolvedAvatar,
+              fullName: resolvedName,
+              followersCount: prof.followers_count ?? user.followersCount,
+              status: 'accepted',
+              acceptedAt: new Date().toISOString(),
+              lastChecked: new Date().toISOString(),
+            };
+            updatePendingUsers((prev) =>
+              prev.map((u) =>
+                u.username.toLowerCase() === user.username.toLowerCase() ? acceptedData : u
+              )
+            );
+            if (!newlyAcceptedUser) {
+              newlyAcceptedUser = acceptedData;
+            }
+          } else {
+            const statusLabel = isStillPending ? 'still pending approval' : 'not following';
+            addLog('info', `🔒 @${user.username} is ${statusLabel}.`);
+            updatePendingUsers((prev) =>
+              prev.map((u) =>
+                u.username.toLowerCase() === user.username.toLowerCase()
+                  ? {
+                      ...u,
+                      providerId: resolvedPid,
+                      avatarUrl: resolvedAvatar,
+                      fullName: resolvedName,
+                      followersCount: prof.followers_count ?? user.followersCount,
+                      status: 'pending',
+                      lastChecked: new Date().toISOString(),
+                    }
+                  : u
+              )
+            );
+          }
+        } else {
+          addLog('fail', `⚠️ Could not verify @${user.username}: ${data.error || data.statusText}`);
+          updatePendingUsers((prev) =>
+            prev.map((u) =>
+              u.username.toLowerCase() === user.username.toLowerCase()
+                ? { ...u, status: 'pending', lastChecked: new Date().toISOString() }
+                : u
+            )
+          );
+        }
+      } catch (err) {
+        addLog('fail', `⚠️ Error polling @${user.username}: ${err.message}`);
+        updatePendingUsers((prev) =>
+          prev.map((u) =>
+            u.username.toLowerCase() === user.username.toLowerCase()
+              ? { ...u, status: 'pending', lastChecked: new Date().toISOString() }
+              : u
+          )
+        );
+      }
+
+      if (i < toCheck.length - 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+
+    setIsPollingPending(false);
+    setPollingStatusText('');
+    addLog('info', 'Status polling completed.');
+
+    if (newlyAcceptedUser) {
+      setAcceptedModalUser(newlyAcceptedUser);
+    }
+  };
+
+  const handleRunCycleForUser = async (targetUser) => {
+    if (!targetUser) return;
+    setAcceptedModalUser(null);
+    setCycleRunningUser(targetUser.username);
+    addLog('info', `🚀 Starting engagement cycle for accepted target @${targetUser.username}...`);
+
+    try {
+      let pid = targetUser.providerId;
+      if (!pid) {
+        addLog('get', `[${targetUser.username}] Resolving provider ID...`);
+        const pRes = await fetch('/api/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: targetUser.username, dsn, apiKey, accountId }),
+        });
+        const pData = await pRes.json();
+        if (pData.ok && pData.providerId) {
+          pid = pData.providerId;
+        } else {
+          throw new Error('Unable to resolve provider ID');
+        }
+      }
+
+      // Fetch posts now that user accepted and profile is unlocked
+      addLog('get', `[${targetUser.username}] Fetching unlocked posts: GET /api/v1/users/${pid}/posts`);
+      const postRes = await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerId: pid, username: targetUser.username, dsn, apiKey, accountId }),
+      });
+      const postData = await postRes.json();
+      const posts = postData.posts || [];
+
+      if (posts.length === 0) {
+        addLog('skip', `⚠️ @${targetUser.username} has no posts visible on their feed.`);
+        updatePendingUsers((prev) =>
+          prev.map((u) =>
+            u.username.toLowerCase() === targetUser.username.toLowerCase()
+              ? { ...u, status: 'completed', completedAt: new Date().toISOString() }
+              : u
+          )
+        );
+        setCycleRunningUser(null);
+        return;
+      }
+
+      addLog('pass', `✅ Unlocked ${posts.length} posts for @${targetUser.username}!`);
+      const selectedPosts = posts.slice(0, postsToLike);
+
+      for (let pIdx = 0; pIdx < selectedPosts.length; pIdx++) {
+        const post = selectedPosts[pIdx];
+
+        if (mode === 'dry-run') {
+          addLog('skip', `⏭️ Like skipped [DRY-RUN]: Post ${post.id}`);
+        } else {
+          addLog('post', `[${targetUser.username}] Like post ${post.id}`);
+          const likeRes = await fetch('/api/like', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ postId: post.id, dsn, apiKey, accountId }),
+          });
+          const likeData = await likeRes.json();
+          if (likeData.ok) {
+            addLog('pass', `✅ Liked post ${post.id}`);
+            setSessionActions((prev) => ({ ...prev, likes: prev.likes + 1 }));
+          } else {
+            addLog('fail', `❌ Like failed: ${likeData.error || likeData.statusText}`);
+          }
+        }
+
+        // Delay between posts
+        await new Promise((r) => setTimeout(r, 2000));
+
+        // Comment on first post
+        if (pIdx === 0 && commentOnPosts) {
+          const commentText = humanCommentsEnabled
+            ? generateHumanComment({ caption: post.caption, prefix: commentPrefix, maxChars: maxCaptionChars })
+            : (commentPrefix ? `${commentPrefix} Nice post!` : 'Nice post! 🔥');
+
+          if (humanTypingSimEnabled) {
+            const typingMs = Math.min(getSimulatedTypingDelay(commentText), 2500);
+            addLog('info', `⌨️ Simulating human typing (${(typingMs / 1000).toFixed(1)}s)...`);
+            await new Promise((r) => setTimeout(r, typingMs));
+          }
+
+          if (mode === 'dry-run') {
+            addLog('skip', `⏭️ Comment prepared [DRY-RUN]: "${commentText}"`);
+          } else {
+            addLog('post', `[${targetUser.username}] Posting comment: "${commentText}"`);
+            const cmtRes = await fetch('/api/comment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ postId: post.id, commentText, dsn, apiKey, accountId }),
+            });
+            const cmtData = await cmtRes.json();
+            if (cmtData.ok) {
+              addLog('pass', `✅ Commented successfully: "${commentText}"`);
+              setSessionActions((prev) => ({ ...prev, comments: prev.comments + 1 }));
+            } else {
+              addLog('fail', `❌ Comment failed: ${cmtData.error || cmtData.statusText}`);
+            }
+          }
+        }
+      }
+
+      addLog('pass', `🎉 Engagement cycle finished successfully for @${targetUser.username}!`);
+      updatePendingUsers((prev) =>
+        prev.map((u) =>
+          u.username.toLowerCase() === targetUser.username.toLowerCase()
+            ? { ...u, status: 'completed', completedAt: new Date().toISOString() }
+            : u
+        )
+      );
+    } catch (err) {
+      addLog('fail', `❌ Engagement cycle failed for @${targetUser.username}: ${err.message}`);
+    } finally {
+      setCycleRunningUser(null);
     }
   };
 
@@ -510,6 +859,19 @@ export default function Home() {
         } else if (mode === 'dry-run') {
           addLog('skip', `⏭️ Follow skipped [DRY-RUN]: Provider ID resolved, but follow request was not dispatched.`);
           summary.followResult = { status: 'skipped', reason: 'dry-run-mode' };
+          if (summary.profile?.is_private) {
+            addPendingUser({
+              username,
+              providerId,
+              fullName: summary.profile?.full_name || username,
+              avatarUrl: summary.profile?.avatar_url || '',
+              followersCount: summary.profile?.followers_count || 0,
+              requestedAt: new Date().toISOString(),
+              status: 'pending',
+              lastChecked: new Date().toISOString(),
+            });
+            addLog('info', `📥 Added @${username} to "Pending Approvals" tray [Dry-Run].`);
+          }
         } else {
           addLog('post', `[${username}] Sending follow request: POST /api/v1/users/invite`);
           const folRes = await fetch('/api/follow', {
@@ -532,6 +894,20 @@ export default function Home() {
               isPrivate,
             };
             setSessionActions((prev) => ({ ...prev, follows: prev.follows + 1 }));
+
+            if (isPrivate) {
+              addPendingUser({
+                username,
+                providerId,
+                fullName: summary.profile?.full_name || username,
+                avatarUrl: summary.profile?.avatar_url || '',
+                followersCount: summary.profile?.followers_count || 0,
+                requestedAt: new Date().toISOString(),
+                status: 'pending',
+                lastChecked: new Date().toISOString(),
+              });
+              addLog('info', `📥 Added @${username} to "Pending Approvals" tray for status polling.`);
+            }
           } else {
             addLog('fail', `❌ Follow request failed: ${folData.error || folData.statusText}`);
             summary.followResult = { status: 'failed', error: folData.error };
@@ -568,6 +944,16 @@ export default function Home() {
           if (summary.profile?.is_private) {
             addLog('info', `🔒 Note: @${username} is a Private Account. Follow request is pending approval.`);
             addLog('skip', `⏭️ Instagram restricts feed media of private accounts until accepted. Safely skipping like and comment steps.`);
+            addPendingUser({
+              username,
+              providerId,
+              fullName: summary.profile?.full_name || username,
+              avatarUrl: summary.profile?.avatar_url || '',
+              followersCount: summary.profile?.followers_count || 0,
+              requestedAt: new Date().toISOString(),
+              status: 'pending',
+              lastChecked: new Date().toISOString(),
+            });
           } else {
             addLog('skip', `⏭️ No posts returned. Skipping like and comment actions.`);
           }
@@ -1023,6 +1409,29 @@ export default function Home() {
               onClick={() => setActiveTab('targets')}
             >
               <Users size={16} /> Targets Queue ({targets.length})
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'pending' ? 'active' : ''}`}
+              onClick={() => setActiveTab('pending')}
+            >
+              <Clock size={16} /> Pending Approvals
+              {pendingUsers.filter((u) => u.status !== 'completed').length > 0 && (
+                <span
+                  style={{
+                    marginLeft: '6px',
+                    background: 'rgba(245, 158, 11, 0.25)',
+                    color: '#fbbf24',
+                    border: '1px solid rgba(245, 158, 11, 0.45)',
+                    borderRadius: '999px',
+                    padding: '1px 7px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {pendingUsers.filter((u) => u.status !== 'completed').length}
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -1583,6 +1992,39 @@ export default function Home() {
         {/* TAB 2: TARGETS MANAGER (Dedicated Page) */}
         {activeTab === 'targets' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {pendingUsers.filter((u) => u.status !== 'completed').length > 0 && (
+              <div
+                style={{
+                  background: 'rgba(245, 158, 11, 0.1)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.85rem 1.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  fontSize: '0.85rem',
+                  color: '#fbbf24',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Lock size={16} />
+                  <span>
+                    You have <strong>{pendingUsers.filter((u) => u.status !== 'completed').length}</strong> private account(s) pending follow request approval.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ padding: '4px 10px', fontSize: '0.78rem', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                  onClick={() => setActiveTab('pending')}
+                >
+                  View & Poll Approvals →
+                </button>
+              </div>
+            )}
+
             <div className="glass-panel">
               <div className="panel-header">
                 <div className="panel-title">
@@ -1732,6 +2174,257 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: PENDING PRIVATE APPROVALS */}
+        {activeTab === 'pending' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="glass-panel">
+              <div className="panel-header" style={{ flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <div className="panel-title">
+                    <Clock size={20} color="#fbbf24" />
+                    Pending Private Approvals Tray
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-sub)', marginTop: '0.25rem' }}>
+                    Private accounts where follow requests were dispatched. Poll their status on demand to safely check approvals and trigger engagement cycles without Instagram rate limits.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+                    onClick={() => handlePollPendingStatuses()}
+                    disabled={isPollingPending || pendingUsers.length === 0}
+                  >
+                    <RefreshCw size={14} className={isPollingPending ? 'animate-spin' : ''} />
+                    {isPollingPending ? (pollingStatusText || 'Polling Statuses...') : 'Poll All Statuses'}
+                  </button>
+
+                  {pendingUsers.some((u) => u.status === 'completed') && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={clearCompletedPendingUsers}
+                    >
+                      <Trash2 size={14} /> Clear Completed
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Add target manually */}
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '1.25rem', maxWidth: '480px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Add private target e.g. username"
+                  value={newPendingInput}
+                  onChange={(e) => setNewPendingInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddPendingManual();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleAddPendingManual}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  <Plus size={14} /> Add Target
+                </button>
+              </div>
+
+              {/* Table or Empty State */}
+              {pendingUsers.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', color: 'var(--text-sub)' }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                    <Lock size={26} color="#fbbf24" />
+                  </div>
+                  <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '0.4rem' }}>
+                    No Pending Private Accounts
+                  </h4>
+                  <p style={{ maxWidth: '440px', margin: '0 auto 1.25rem', fontSize: '0.85rem' }}>
+                    When you run a batch and encounter a private Instagram account, the system automatically dispatches the follow request and places them here so your batch can continue seamlessly.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setActiveTab('targets')}
+                  >
+                    View Targets Queue
+                  </button>
+                </div>
+              ) : (
+                <div className="targets-table-wrapper">
+                  <table className="targets-table">
+                    <thead>
+                      <tr>
+                        <th>Target Profile</th>
+                        <th>Followers</th>
+                        <th>Request Sent</th>
+                        <th>Status</th>
+                        <th>Last Checked</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingUsers.map((user) => {
+                        const isAccepted = user.status === 'accepted';
+                        const isChecking = user.status === 'checking';
+                        const isCompleted = user.status === 'completed';
+                        const isCycleRunning = cycleRunningUser === user.username;
+
+                        return (
+                          <tr
+                            key={user.username}
+                            style={{
+                              background: isAccepted ? 'rgba(16, 185, 129, 0.05)' : undefined,
+                            }}
+                          >
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                {user.avatarUrl ? (
+                                  <img
+                                    src={formatImageUrl(user.avatarUrl)}
+                                    alt={user.username}
+                                    referrerPolicy="no-referrer"
+                                    style={{
+                                      width: '36px',
+                                      height: '36px',
+                                      borderRadius: '50%',
+                                      objectFit: 'cover',
+                                      border: isAccepted ? '2px solid #10b981' : '1px solid var(--border-subtle)',
+                                    }}
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: '36px',
+                                      height: '36px',
+                                      borderRadius: '50%',
+                                      background: 'var(--bg-glass)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: '0.85rem',
+                                      fontWeight: 600,
+                                      border: '1px solid var(--border-subtle)',
+                                    }}
+                                  >
+                                    {user.username.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <div>
+                                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    @{user.username}
+                                    <a
+                                      href={`https://instagram.com/${user.username}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ color: 'var(--text-dim)', display: 'inline-flex' }}
+                                    >
+                                      <ExternalLink size={12} />
+                                    </a>
+                                  </div>
+                                  {user.fullName && user.fullName !== user.username && (
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                                      {user.fullName}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            <td style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
+                              {user.followersCount ? user.followersCount.toLocaleString() : '—'}
+                            </td>
+
+                            <td style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>
+                              {user.requestedAt
+                                ? new Date(user.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : '—'}
+                            </td>
+
+                            <td>
+                              {isChecking ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '3px 9px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600 }}>
+                                  <RefreshCw size={11} className="animate-spin" /> Checking...
+                                </span>
+                              ) : isAccepted ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.4)', padding: '3px 9px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600, boxShadow: '0 0 10px rgba(16, 185, 129, 0.3)' }}>
+                                  <CheckCircle2 size={12} color="#34d399" /> Accepted 🎉
+                                </span>
+                              ) : isCompleted ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', padding: '3px 9px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600 }}>
+                                  <Check size={12} /> Cycle Completed
+                                </span>
+                              ) : (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '3px 9px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600 }}>
+                                  <Lock size={11} color="#fbbf24" /> Pending Approval
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                              {user.lastChecked
+                                ? new Date(user.lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : 'Never'}
+                            </td>
+
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                                {isAccepted && (
+                                  <button
+                                    type="button"
+                                    className="btn-primary"
+                                    style={{ padding: '4px 10px', fontSize: '0.75rem', background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                                    onClick={() => handleRunCycleForUser(user)}
+                                    disabled={isCycleRunning}
+                                  >
+                                    <Play size={11} fill="currentColor" /> {isCycleRunning ? 'Running...' : 'Start Cycle'}
+                                  </button>
+                                )}
+
+                                {!isCompleted && (
+                                  <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                    onClick={() => handlePollPendingStatuses(user.username)}
+                                    disabled={isPollingPending}
+                                    title="Check approval status"
+                                  >
+                                    <RefreshCw size={12} className={isChecking ? 'animate-spin' : ''} />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ padding: '4px 8px', color: '#fb7185' }}
+                                  onClick={() => removePendingUser(user.username)}
+                                  title="Remove from pending list"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
@@ -2493,6 +3186,164 @@ export default function Home() {
                 }}
               >
                 Confirm & Enable Live Mode
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Follow Request Accepted Confirmation Modal */}
+      {acceptedModalUser && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setAcceptedModalUser(null);
+            }
+          }}
+        >
+          <div
+            className="modal-dialog"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '540px' }}
+          >
+            <div className="modal-header">
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#10b981' }}>
+                <CheckCircle2 size={22} color="#10b981" />
+                Follow Request Accepted!
+              </h3>
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '1.3rem', padding: '0 4px' }}
+                onClick={() => setAcceptedModalUser(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* User Profile Card */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem',
+                  padding: '1rem',
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                {acceptedModalUser.avatarUrl ? (
+                  <img
+                    src={formatImageUrl(acceptedModalUser.avatarUrl)}
+                    alt={acceptedModalUser.username}
+                    referrerPolicy="no-referrer"
+                    style={{ width: '56px', height: '56px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #10b981' }}
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '56px',
+                      height: '56px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 700,
+                      fontSize: '1.3rem',
+                      color: '#fff',
+                    }}
+                  >
+                    {acceptedModalUser.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-main)' }}>
+                      @{acceptedModalUser.username}
+                    </span>
+                    <span
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.2)',
+                        color: '#34d399',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                      }}
+                    >
+                      Accepted 🎉
+                    </span>
+                  </div>
+                  {acceptedModalUser.fullName && acceptedModalUser.fullName !== acceptedModalUser.username && (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
+                      {acceptedModalUser.fullName}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    Followers: {acceptedModalUser.followersCount ? acceptedModalUser.followersCount.toLocaleString() : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.88rem', color: 'var(--text-sub)', lineHeight: 1.5 }}>
+                <p>
+                  <strong>@{acceptedModalUser.username}</strong> has approved your private follow request.
+                  Their feed posts and media are now unlocked and ready for engagement.
+                </p>
+                <p style={{ marginTop: '0.5rem' }}>
+                  Would you like to start the engagement cycle (like up to <strong>{postsToLike} posts</strong> & leave humanized comments) right now?
+                </p>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.75rem',
+                  fontSize: '0.8rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                  color: 'var(--text-sub)',
+                }}
+              >
+                <div>🛡️ <strong>Anti-Ban Engine:</strong> Human delay pacing & natural browsing active</div>
+                <div>⚡ <strong>Current Mode:</strong> <span style={{ color: mode === 'live' ? '#ef4444' : '#38bdf8', fontWeight: 600 }}>{mode === 'live' ? 'LIVE (Real Actions)' : 'DRY-RUN (Simulated)'}</span></div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setAcceptedModalUser(null)}
+              >
+                Later (Keep in Pending Tray)
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                onClick={() => handleRunCycleForUser(acceptedModalUser)}
+                disabled={cycleRunningUser === acceptedModalUser.username}
+              >
+                {cycleRunningUser === acceptedModalUser.username ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Starting Cycle...
+                  </>
+                ) : (
+                  <>
+                    <Play size={14} fill="currentColor" /> Start Engagement Cycle Now
+                  </>
+                )}
               </button>
             </div>
           </div>
