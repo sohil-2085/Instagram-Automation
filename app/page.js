@@ -124,7 +124,7 @@ export default function Home() {
 
   // Terminal Logs
   const [logs, setLogs] = useState([]);
-  const terminalEndRef = useRef(null);
+  const terminalBodyRef = useRef(null);
 
   // Standalone Playground State
   const [playUsername, setPlayUsername] = useState('sohil__2085');
@@ -219,10 +219,10 @@ export default function Home() {
     loadInitial();
   }, []);
 
-  // Auto-scroll terminal
+  // Auto-scroll inside terminal box only (Never scrolls the browser window/page)
   useEffect(() => {
-    if (terminalEndRef.current) {
-      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (terminalBodyRef.current) {
+      terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
     }
   }, [logs]);
 
@@ -2214,7 +2214,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="terminal-body">
+          <div className="terminal-body" ref={terminalBodyRef}>
             {logs.map((log) => (
               <div key={log.id} className="log-entry">
                 <span className="log-time">[{log.time}]</span>
@@ -2224,7 +2224,6 @@ export default function Home() {
                 <span className="log-message">{log.message}</span>
               </div>
             ))}
-            <div ref={terminalEndRef} />
           </div>
         </div>
       </main>
