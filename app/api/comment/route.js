@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDefaultEnvironment, unipileFetch, safeValue } from '@/lib/unipileService';
+import { getDefaultEnvironment, unipileFetch, extractApiError, safeValue } from '@/lib/unipileService';
 
 export async function POST(request) {
   try {
@@ -42,7 +42,7 @@ export async function POST(request) {
       body: safeValue('body', result.body),
       is502: result.is502,
       note: result.note,
-      error: !result.ok ? (typeof result.body === 'string' ? result.body : (result.body?.error || result.statusText)) : undefined,
+      error: !result.ok ? extractApiError(result) : undefined,
     });
   } catch (error) {
     return NextResponse.json(

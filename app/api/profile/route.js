@@ -4,6 +4,7 @@ import {
   unipileFetch,
   extractProviderId,
   readFollowState,
+  extractApiError,
   safeValue,
 } from '@/lib/unipileService';
 
@@ -39,7 +40,7 @@ export async function POST(request) {
         body: safeValue('body', result.body),
         is502: result.is502,
         note: result.note,
-        error: typeof result.body === 'string' ? result.body : (result.body?.error || result.statusText),
+        error: extractApiError(result),
       });
     }
 
