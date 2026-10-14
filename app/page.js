@@ -68,6 +68,14 @@ function InstagramIcon({ size = 20, className, ...props }) {
   );
 }
 
+function formatImageUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/') || trimmed.startsWith('data:')) return trimmed;
+  return `/api/proxy-image?url=${encodeURIComponent(trimmed)}`;
+}
+
 export default function Home() {
   // Navigation Tabs: 'runner' | 'targets' | 'settings' | 'playground' | 'reconnect'
   const [activeTab, setActiveTab] = useState('runner');
@@ -1360,17 +1368,38 @@ export default function Home() {
                     <div key={summary.username} className="target-card">
                       <div className="target-header">
                         <div className="target-profile-info">
-                          {summary.profile?.avatar_url || summary.profile?.profile_picture_url ? (
+                          {summary.profile?.avatar_url || summary.profile?.profile_picture_url || summary.profile?.profile_picture_url_large ? (
                             <img
-                              src={summary.profile.avatar_url || summary.profile.profile_picture_url}
+                              src={formatImageUrl(
+                                summary.profile.avatar_url ||
+                                summary.profile.profile_picture_url ||
+                                summary.profile.profile_picture_url_large
+                              )}
                               alt={summary.username}
                               className="profile-avatar"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                const raw = summary.profile?.avatar_url || summary.profile?.profile_picture_url || summary.profile?.profile_picture_url_large;
+                                if (raw && e.currentTarget.src.includes('/api/proxy-image')) {
+                                  e.currentTarget.src = raw;
+                                } else {
+                                  e.currentTarget.style.display = 'none';
+                                  const sib = e.currentTarget.nextElementSibling;
+                                  if (sib) sib.style.display = 'flex';
+                                }
+                              }}
                             />
-                          ) : (
-                            <div className="avatar-placeholder">
-                              {summary.username.charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          ) : null}
+                          <div
+                            className="avatar-placeholder"
+                            style={{
+                              display: (summary.profile?.avatar_url || summary.profile?.profile_picture_url || summary.profile?.profile_picture_url_large)
+                                ? 'none'
+                                : 'flex',
+                            }}
+                          >
+                            {summary.username.charAt(0).toUpperCase()}
+                          </div>
 
                           <div className="target-names">
                             <h3>
@@ -1448,12 +1477,34 @@ export default function Home() {
                                 <div key={post.id} className="post-item-card">
                                   <div className="post-thumb-wrap">
                                     {post.mediaUrl ? (
-                                      <img src={post.mediaUrl} alt="Instagram Post" className="post-thumb-img" />
-                                    ) : (
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-dim)' }}>
-                                        <InstagramIcon size={24} />
-                                      </div>
-                                    )}
+                                      <img
+                                        src={formatImageUrl(post.mediaUrl)}
+                                        alt="Instagram Post"
+                                        className="post-thumb-img"
+                                        referrerPolicy="no-referrer"
+                                        onError={(e) => {
+                                          if (post.mediaUrl && e.currentTarget.src.includes('/api/proxy-image')) {
+                                            e.currentTarget.src = post.mediaUrl;
+                                          } else {
+                                            e.currentTarget.style.display = 'none';
+                                            const sib = e.currentTarget.nextElementSibling;
+                                            if (sib) sib.style.display = 'flex';
+                                          }
+                                        }}
+                                      />
+                                    ) : null}
+                                    <div
+                                      style={{
+                                        display: post.mediaUrl ? 'none' : 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        height: '100%',
+                                        color: 'var(--text-dim)',
+                                        background: 'rgba(255,255,255,0.02)',
+                                      }}
+                                    >
+                                      <InstagramIcon size={24} />
+                                    </div>
                                     {isLiked && (
                                       <div style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(225,48,108,0.9)', borderRadius: '50%', padding: '4px', display: 'flex' }}>
                                         <Heart size={14} color="white" fill="white" />
@@ -1998,24 +2049,64 @@ export default function Home() {
                 {playProfile && (
                   <div className="target-card" style={{ padding: '1rem' }}>
                     <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                      {playProfile.avatar_url && (
-                        <img src={playProfile.avatar_url} alt="Profile" className="profile-avatar" style={{ width: '40px', height: '40px' }} />
-                      )}
+                      {(playProfile.avatar_url || playProfile.profile_picture_url || playProfile.profile_picture_url_large) ? (
+                        <img
+                          src={formatImageUrl(
+                            playProfile.avatar_url ||
+                            playProfile.profile_picture_url ||
+                            playProfile.profile_picture_url_large
+                          )}
+                          alt="Profile"
+                          className="profile-avatar"
+                          referrerPolicy="no-referrer"
+                          style={{ width: '44px', height: '44px' }}
+                          onError={(e) => {
+                            const raw = playProfile.avatar_url || playProfile.profile_picture_url || playProfile.profile_picture_url_large;
+                            if (raw && e.currentTarget.src.includes('/api/proxy-image')) {
+                              e.currentTarget.src = raw;
+                            } else {
+                              e.currentTarget.style.display = 'none';
+                              const sib = e.currentTarget.nextElementSibling;
+                              if (sib) sib.style.display = 'flex';
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className="avatar-placeholder"
+                        style={{
+                          width: '44px',
+                          height: '44px',
+                          fontSize: '1rem',
+                          display: (playProfile.avatar_url || playProfile.profile_picture_url || playProfile.profile_picture_url_large)
+                            ? 'none'
+                            : 'flex',
+                        }}
+                      >
+                        {(playProfile.username || playUsername || 'U').charAt(0).toUpperCase()}
+                      </div>
                       <div>
-                        <h4 style={{ fontSize: '0.9rem' }}>{playProfile.full_name || playProfile.username}</h4>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-sub)' }}>ID: {playProfile.provider_id}</div>
+                        <h4 style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          {playProfile.full_name || playProfile.username || playUsername}
+                          {playProfile.is_verified && <CheckCircle2 size={14} color="var(--accent-cyan)" />}
+                        </h4>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-sub)' }}>
+                          ID: <code>{playProfile.provider_id || 'N/A'}</code> • {playProfile.followers_count || playProfile.follower_count || 0} followers
+                        </div>
                       </div>
                     </div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-sub)' }}>
-                      {playProfile.biography}
-                    </div>
+                    {playProfile.biography && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-sub)', marginTop: '0.5rem' }}>
+                        {playProfile.biography}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Posts Selector */}
+                {/* Posts Selector & Preview */}
                 {playPosts.length > 0 && (
                   <div className="form-group">
-                    <label className="form-label">Select Fetched Post ID</label>
+                    <label className="form-label">Select Fetched Post ({playPosts.length} available)</label>
                     <select
                       className="form-select"
                       value={playPostId}
@@ -2027,6 +2118,65 @@ export default function Home() {
                         </option>
                       ))}
                     </select>
+
+                    {/* Preview of the selected post photo and caption */}
+                    {(() => {
+                      const selPost = playPosts.find((p) => p.id === playPostId);
+                      if (!selPost) return null;
+                      return (
+                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '0.65rem', alignItems: 'center' }}>
+                          <div style={{ width: '64px', height: '64px', flexShrink: 0, position: 'relative', borderRadius: '4px', overflow: 'hidden', background: '#111' }}>
+                            {selPost.mediaUrl ? (
+                              <img
+                                src={formatImageUrl(selPost.mediaUrl)}
+                                alt="Post thumbnail"
+                                referrerPolicy="no-referrer"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                onError={(e) => {
+                                  if (selPost.mediaUrl && e.currentTarget.src.includes('/api/proxy-image')) {
+                                    e.currentTarget.src = selPost.mediaUrl;
+                                  } else {
+                                    e.currentTarget.style.display = 'none';
+                                    const sib = e.currentTarget.nextElementSibling;
+                                    if (sib) sib.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <div
+                              style={{
+                                display: selPost.mediaUrl ? 'none' : 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '100%',
+                                height: '100%',
+                                color: 'var(--text-dim)',
+                              }}
+                            >
+                              <InstagramIcon size={20} />
+                            </div>
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.75rem' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                              ❤️ {selPost.likeCount || 0} likes • 💬 {selPost.commentsCount || 0} comments
+                            </div>
+                            <div style={{ color: 'var(--text-sub)', maxHeight: '38px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {selPost.caption || '(No caption provided)'}
+                            </div>
+                            {selPost.permalink && (
+                              <a
+                                href={selPost.permalink}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', textDecoration: 'none' }}
+                              >
+                                View post on Instagram ↗
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

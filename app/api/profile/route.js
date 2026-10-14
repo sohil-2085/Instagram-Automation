@@ -46,6 +46,27 @@ export async function POST(request) {
     const providerId = extractProviderId(result.body);
     const followState = readFollowState(result.body);
 
+    const rawProfile = typeof result.body === 'object' && result.body !== null ? result.body : {};
+    const avatarUrl =
+      rawProfile.profile_picture_url_large ||
+      rawProfile.profile_picture_url ||
+      rawProfile.profile_pic_url ||
+      rawProfile.avatar_url ||
+      rawProfile.owner?.profile_pic_url ||
+      '';
+
+    const enrichedProfile = {
+      ...rawProfile,
+      avatar_url: avatarUrl,
+      profile_picture_url: avatarUrl,
+      profile_picture_url_large: rawProfile.profile_picture_url_large || avatarUrl,
+      followers_count: rawProfile.followers_count ?? rawProfile.follower_count ?? 0,
+      follower_count: rawProfile.followers_count ?? rawProfile.follower_count ?? 0,
+      following_count: rawProfile.following_count ?? 0,
+      posts_count: rawProfile.posts_count ?? 0,
+      full_name: rawProfile.full_name || rawProfile.name || username,
+    };
+
     return NextResponse.json({
       ok: true,
       status: result.status,
@@ -53,8 +74,9 @@ export async function POST(request) {
       durationMs: result.durationMs,
       providerId,
       followState,
+      avatarUrl,
       body: safeValue('body', result.body),
-      profile: result.body,
+      profile: enrichedProfile,
     });
   } catch (error) {
     return NextResponse.json(

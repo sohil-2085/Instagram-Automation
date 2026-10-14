@@ -8,6 +8,24 @@ import {
   safeValue,
 } from '@/lib/unipileService';
 
+function extractMediaUrl(post) {
+  if (!post || typeof post !== 'object') return '';
+  if (post.preview_image?.url) return post.preview_image.url;
+  if (Array.isArray(post.carousel_medias) && post.carousel_medias[0]?.url) {
+    return post.carousel_medias[0].url;
+  }
+  if (Array.isArray(post.carousel_media) && post.carousel_media[0]?.image_versions2?.candidates?.[0]?.url) {
+    return post.carousel_media[0].image_versions2.candidates[0].url;
+  }
+  if (Array.isArray(post.carousel_media) && post.carousel_media[0]?.url) {
+    return post.carousel_media[0].url;
+  }
+  if (post.image_versions2?.candidates?.[0]?.url) {
+    return post.image_versions2.candidates[0].url;
+  }
+  return post.media_url || post.image_url || post.display_url || post.thumbnail_url || '';
+}
+
 export async function POST(request) {
   try {
     const data = await request.json();
@@ -54,15 +72,19 @@ export async function POST(request) {
       if (!postId || seenIds.has(postId)) continue;
       seenIds.add(postId);
 
+      const mediaUrl = extractMediaUrl(post);
+
       formattedPosts.push({
         id: postId,
         postId,
         caption: extractCaption(post),
-        mediaUrl: post.media_url || post.image_url || post.thumbnail_url || post.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url || '',
+        mediaUrl,
+        previewImageUrl: mediaUrl,
         likeCount: post.like_count || post.likes_count || 0,
         commentsCount: post.comments_count || post.comment_count || 0,
         createdAt: post.created_at || post.taken_at || '',
         permalink: post.permalink || post.url || `https://instagram.com/p/${postId}`,
+        owner: post.owner || null,
         raw: safeValue('post', post),
       });
     }
