@@ -6,9 +6,9 @@ export async function POST(request) {
     const data = await request.json();
     const env = getDefaultEnvironment();
 
-    const dsn = data.dsn || env.dsn;
-    const apiKey = data.apiKey || env.apiKey;
-    const accountId = data.accountId || env.accountId;
+    const dsn = env.dsn || data.dsn;
+    const apiKey = env.apiKey || data.apiKey;
+    const accountId = env.accountId || data.accountId;
 
     if (!dsn) {
       return NextResponse.json({ ok: false, error: 'DSN is required' }, { status: 400 });

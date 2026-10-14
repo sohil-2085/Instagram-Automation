@@ -9,9 +9,9 @@ export async function POST(request) {
     const managerName = String(data.managerName || 'TEST_MANAGER_001').trim();
     const notifyUrl = String(data.notifyUrl || 'https://webhook.site/test').trim();
 
-    const dsn = data.dsn || env.dsn;
-    const apiKey = data.apiKey || env.apiKey;
-    const accountId = data.accountId || env.accountId;
+    const dsn = env.dsn || data.dsn;
+    const apiKey = env.apiKey || data.apiKey;
+    const accountId = env.accountId || data.accountId;
 
     const baseUrl = makeBaseUrl(dsn);
     const expiresOn = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();

@@ -81,10 +81,10 @@ export default function Home() {
   // Navigation Tabs: 'runner' | 'targets' | 'settings' | 'playground' | 'reconnect'
   const [activeTab, setActiveTab] = useState('runner');
 
-  // Configuration & Environment Variables
-  const [dsn, setDsn] = useState('api71.unipile.com:20132');
+  // Server Environment Variables (Retrieved exclusively from Vercel / server env)
+  const [dsn, setDsn] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [accountId, setAccountId] = useState('BqO3d7scQma6rakq6P5fEQ');
+  const [accountId, setAccountId] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [hasServerApiKey, setHasServerApiKey] = useState(false);
 
@@ -176,9 +176,20 @@ export default function Home() {
         const res = await fetch('/api/config');
         if (res.ok) {
           const cfg = await res.json();
-          const savedDsn = localStorage.getItem('unipile_dsn');
-          const savedApiKey = localStorage.getItem('unipile_api_key');
-          const savedAccountId = localStorage.getItem('unipile_account_id');
+
+          // Purge any legacy credentials from localStorage to strictly use Vercel env
+          try {
+            localStorage.removeItem('unipile_dsn');
+            localStorage.removeItem('unipile_api_key');
+            localStorage.removeItem('unipile_account_id');
+          } catch {}
+
+          // Credentials ONLY come from Server Environment (Vercel)
+          setDsn(cfg.dsn || '');
+          setAccountId(cfg.accountId || '');
+          setApiKey(cfg.apiKey || '');
+          setHasServerApiKey(cfg.hasApiKey);
+
           const savedMode = localStorage.getItem('unipile_mode');
           const savedTargets = localStorage.getItem('unipile_targets');
           const savedPending = localStorage.getItem('unipile_pending_users');
@@ -188,15 +199,6 @@ export default function Home() {
           const savedCommentPrefix = localStorage.getItem('unipile_comment_prefix');
           const savedJitter = localStorage.getItem('unipile_jitter');
           const savedSkip = localStorage.getItem('unipile_skip');
-
-          setDsn(savedDsn || cfg.dsn || 'api71.unipile.com:20132');
-          setAccountId(savedAccountId || cfg.accountId || 'BqO3d7scQma6rakq6P5fEQ');
-          if (savedApiKey) {
-            setApiKey(savedApiKey);
-          } else if (cfg.apiKey) {
-            setApiKey(cfg.apiKey);
-          }
-          setHasServerApiKey(cfg.hasApiKey);
 
           if (savedMode === 'live' || savedMode === 'dry-run') {
             setMode(savedMode);
@@ -661,11 +663,14 @@ export default function Home() {
     }
   };
 
-  // Save Settings to LocalStorage
+  // Save Settings to LocalStorage (User Anti-Ban & Timing Preferences only; Credentials are in Vercel Env)
   const handleSaveSettings = () => {
-    localStorage.setItem('unipile_dsn', dsn.trim());
-    localStorage.setItem('unipile_api_key', apiKey.trim());
-    localStorage.setItem('unipile_account_id', accountId.trim());
+    try {
+      localStorage.removeItem('unipile_dsn');
+      localStorage.removeItem('unipile_api_key');
+      localStorage.removeItem('unipile_account_id');
+    } catch {}
+
     localStorage.setItem('unipile_mode', mode);
     localStorage.setItem('unipile_actions_sec', String(betweenActionsSeconds));
     localStorage.setItem('unipile_users_sec', String(betweenUsersSeconds));
@@ -675,29 +680,32 @@ export default function Home() {
     localStorage.setItem('unipile_skip', String(randomSkipEnabled));
 
     setSaveSuccessNotice(true);
-    addLog('info', 'All environment variables and anti-ban settings saved to browser storage.');
+    addLog('info', 'Anti-ban preferences saved. DSN, API Key, and Account ID remain managed exclusively by Vercel environment variables.');
     setTimeout(() => setSaveSuccessNotice(false), 3000);
   };
 
   const handleResetDefaults = async () => {
-    if (confirm('Reset all environment variables and runner parameters to defaults?')) {
-      localStorage.removeItem('unipile_dsn');
-      localStorage.removeItem('unipile_api_key');
-      localStorage.removeItem('unipile_account_id');
-      localStorage.removeItem('unipile_actions_sec');
-      localStorage.removeItem('unipile_users_sec');
-      localStorage.removeItem('unipile_posts_to_like');
-      localStorage.removeItem('unipile_comment_prefix');
-      localStorage.removeItem('unipile_jitter');
-      localStorage.removeItem('unipile_skip');
+    if (confirm('Reset runner parameters to safe defaults?')) {
+      try {
+        localStorage.removeItem('unipile_dsn');
+        localStorage.removeItem('unipile_api_key');
+        localStorage.removeItem('unipile_account_id');
+        localStorage.removeItem('unipile_actions_sec');
+        localStorage.removeItem('unipile_users_sec');
+        localStorage.removeItem('unipile_posts_to_like');
+        localStorage.removeItem('unipile_comment_prefix');
+        localStorage.removeItem('unipile_jitter');
+        localStorage.removeItem('unipile_skip');
+      } catch {}
 
       try {
         const res = await fetch('/api/config');
         if (res.ok) {
           const cfg = await res.json();
-          setDsn(cfg.dsn);
+          setDsn(cfg.dsn || '');
           setApiKey(cfg.apiKey || '');
-          setAccountId(cfg.accountId);
+          setAccountId(cfg.accountId || '');
+          setHasServerApiKey(cfg.hasApiKey);
           setBetweenActionsSeconds(15);
           setBetweenUsersSeconds(60);
           setPostsToLike(3);
@@ -706,7 +714,7 @@ export default function Home() {
           setRandomSkipEnabled(true);
         }
       } catch {}
-      addLog('info', 'Reset settings to safe defaults.');
+      addLog('info', 'Reset parameters to safe defaults. Credentials synced from Vercel environment.');
     }
   };
 
@@ -1270,10 +1278,13 @@ export default function Home() {
                 </span>
               </h1>
               <div className="brand-subtitle">
-                DSN: <code style={{ color: 'var(--accent-cyan)' }}>{dsn}</code> • Acc:{' '}
+                DSN: <code style={{ color: 'var(--accent-cyan)' }}>{dsn || 'Loading env...'}</code> • Acc:{' '}
                 <code style={{ color: '#ff85a2' }}>
                   {accountId ? accountId.slice(0, 8) + '...' : 'none'}
                 </code>
+                <span style={{ marginLeft: '6px', fontSize: '0.7rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '1px 6px', borderRadius: '4px' }}>
+                  Env: Vercel
+                </span>
               </div>
             </div>
           </div>
@@ -2436,7 +2447,7 @@ export default function Home() {
             {saveSuccessNotice && (
               <div style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 'var(--radius-md)', padding: '0.85rem 1.25rem', color: '#34d399', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CheckCircle2 size={18} />
-                <strong>Settings Saved!</strong> All environment variables and anti-ban settings have been stored in your browser LocalStorage.
+                <strong>Settings Saved!</strong> Anti-ban preferences stored in browser. API credentials remain managed strictly via Vercel environment variables.
               </div>
             )}
 
@@ -2446,70 +2457,71 @@ export default function Home() {
                 <div className="panel-header">
                   <div className="panel-title">
                     <Settings size={18} color="var(--accent-magenta)" />
-                    Unipile API Credentials (Environment Variables)
+                    Unipile API Credentials (Server Environment)
                   </div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>
-                    Editable in-app (No secret env required)
+                  <span style={{ fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <ShieldCheck size={14} /> Managed via Vercel Env
                   </span>
                 </div>
 
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-sub)' }}>
-                  Configure your private Unipile DSN, Access Key, and Instagram Account ID. Any changes you make here are automatically used by the API endpoints and can be saved to your browser.
-                </p>
+                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', fontSize: '0.8rem', color: '#34d399', lineHeight: 1.5 }}>
+                  🛡️ <strong>Loaded from Vercel Environment Variables:</strong> Your DSN, API Key, and Account ID are fetched strictly from your Vercel Project Environment (<code>UNIPILE_DSN</code>, <code>UNIPILE_API_KEY</code>, <code>UNIPILE_ACCOUNT_ID</code>). Browser LocalStorage overrides have been disabled.
+                </div>
 
                 <div className="form-group">
                   <label className="form-label">
                     <span>Unipile DSN Host (Host & Port)</span>
-                    <span style={{ color: 'var(--text-dim)' }}>Default: api71.unipile.com:20132</span>
+                    <span style={{ color: 'var(--accent-cyan)' }}>from process.env.UNIPILE_DSN</span>
                   </label>
                   <input
                     type="text"
                     className="form-input"
-                    value={dsn}
-                    onChange={(e) => setDsn(e.target.value)}
-                    placeholder="api71.unipile.com:20132"
+                    value={dsn || 'Loading from server env...'}
+                    readOnly
+                    style={{ background: 'rgba(255, 255, 255, 0.03)', color: 'var(--text-sub)', cursor: 'default' }}
                   />
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">
                     <span>Unipile API Key (X-API-KEY)</span>
-                    <span style={{ color: 'var(--accent-emerald)' }}>
-                      {hasServerApiKey ? '✓ Pre-configured' : 'Required'}
+                    <span style={{ color: hasServerApiKey ? '#34d399' : '#fbbf24' }}>
+                      {hasServerApiKey ? '✓ Loaded from process.env.UNIPILE_API_KEY' : '⚠️ Missing in server env'}
                     </span>
                   </label>
                   <div className="password-input-wrap">
                     <input
                       type={showApiKey ? 'text' : 'password'}
                       className="form-input"
-                      style={{ paddingRight: '40px', fontFamily: 'JetBrains Mono, monospace' }}
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="Enter your Unipile API Key"
+                      style={{ paddingRight: '40px', fontFamily: 'JetBrains Mono, monospace', background: 'rgba(255, 255, 255, 0.03)', color: 'var(--text-sub)', cursor: 'default' }}
+                      value={apiKey || (hasServerApiKey ? '••••••••••••••••••••••••' : '')}
+                      readOnly
+                      placeholder={hasServerApiKey ? 'Loaded from Vercel env' : 'Configure in Vercel Dashboard'}
                     />
-                    <button
-                      type="button"
-                      className="password-toggle-btn"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      title={showApiKey ? 'Hide key' : 'Show key'}
-                    >
-                      {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                    {apiKey && (
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        title={showApiKey ? 'Hide key' : 'Show key'}
+                      >
+                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">
                     <span>Connected Instagram Account ID (ACC)</span>
-                    <span style={{ color: 'var(--text-dim)' }}>From Unipile dashboard</span>
+                    <span style={{ color: 'var(--accent-cyan)' }}>from process.env.UNIPILE_ACCOUNT_ID</span>
                   </label>
                   <input
                     type="text"
                     className="form-input"
-                    style={{ fontFamily: 'JetBrains Mono, monospace' }}
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    placeholder="BqO3d7scQma6rakq6P5fEQ"
+                    style={{ fontFamily: 'JetBrains Mono, monospace', background: 'rgba(255, 255, 255, 0.03)', color: 'var(--text-sub)', cursor: 'default' }}
+                    value={accountId || 'Loading from server env...'}
+                    readOnly
                   />
                 </div>
 
@@ -2523,7 +2535,7 @@ export default function Home() {
                     disabled={testConnLoading}
                   >
                     <RefreshCw size={15} className={testConnLoading ? 'spin' : ''} />
-                    {testConnLoading ? 'Testing API Connection...' : '⚡ Test API Connection With These Credentials'}
+                    {testConnLoading ? 'Testing API Connection...' : '⚡ Test API Connection (Using Vercel Env)'}
                   </button>
 
                   {testConnResult && (
@@ -2551,14 +2563,14 @@ export default function Home() {
                     style={{ flex: 1 }}
                     onClick={handleSaveSettings}
                   >
-                    <Save size={16} /> Save to Browser (LocalStorage)
+                    <Save size={16} /> Save Anti-Ban Preferences
                   </button>
                   <button
                     type="button"
                     className="btn-secondary"
                     onClick={handleResetDefaults}
                   >
-                    <RotateCcw size={15} /> Reset Safe Defaults
+                    <RotateCcw size={15} /> Reset Anti-Ban Defaults
                   </button>
                 </div>
               </div>

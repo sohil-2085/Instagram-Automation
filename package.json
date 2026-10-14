@@ -4,9 +4,9 @@
   "private": true,
   "description": "Interactive test runner for a supplied Unipile Instagram Postman collection",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node init && next dev",
+    "build": "node init && next build",
+    "start": "node init && next start",
     "test:instagram": "node instagram-runner.js"
   },
   "engines": {

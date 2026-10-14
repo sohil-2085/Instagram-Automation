@@ -11,7 +11,6 @@ out/
 # Environment files
 instagram-environment.json
 *.local.json
-.env
 .env*.local
 
 # Logs
@@ -24,3 +23,4 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+config.bat
